@@ -16,6 +16,7 @@ export default {
   getTransactions: (username) => api.get(`/transactions?username=${username}`),
   addTransaction: (data, username) => api.post(`/transactions?username=${username}`, data),
   deleteTransaction: (id, username) => api.delete(`/transactions?username=${username}`, { data: { id } }),
+  updateTransaction: (data, username) => api.put(`/transactions?username=${username}`, data),
   
   predictCategory: (description) => api.post('/ai/predict-category', { description }),
   getForecast: (username) => api.get(`/ai/forecast?username=${username}`),

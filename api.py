@@ -69,7 +69,7 @@ def register():
         conn.close()
         return jsonify({"error": "Username already exists"}), 400
 
-@app.route('/api/transactions', methods=['GET', 'POST', 'DELETE'])
+@app.route('/api/transactions', methods=['GET', 'POST', 'DELETE', 'PUT'])
 def transactions():
     username = request.args.get('username')
     if not username:
@@ -120,6 +120,16 @@ def transactions():
         c.execute('DELETE FROM transactions WHERE id=? AND username=?', (tx_id, username))
         conn.commit()
         return jsonify({"message": "Transaction deleted"}), 200
+        
+    elif request.method == 'PUT':
+        data = request.json
+        tx_id = data.get('id')
+        c.execute('''UPDATE transactions 
+                     SET date=?, amount=?, category=?, type=?, description=? 
+                     WHERE id=? AND username=?''',
+                  (data['date'], data['amount'], data['category'], data['type'], data.get('description', ''), tx_id, username))
+        conn.commit()
+        return jsonify({"message": "Transaction updated"}), 200
 
 @app.route('/api/ai/predict-category', methods=['POST'])
 def predict_category():
