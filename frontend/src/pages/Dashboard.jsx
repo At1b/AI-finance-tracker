@@ -23,7 +23,6 @@ export default function Dashboard({ user, onLogout }) {
   const navLinks = [
     { path: "/", label: "Overview", icon: LayoutDashboard },
     { path: "/add", label: "New Transaction", icon: PlusCircle },
-    { path: "/analysis", label: "Spending Analysis", icon: BarChart3 },
     { path: "/forecast", label: "AI Forecast", icon: BrainCircuit },
     { path: "/budget", label: "Smart Budget", icon: Wallet },
     { path: "/alerts", label: "Alerts", icon: BellRing },
@@ -99,7 +98,6 @@ export default function Dashboard({ user, onLogout }) {
         <div className="p-10 relative z-0">
           <Routes>
             <Route path="/" element={<Overview user={user} />} />
-            <Route path="/analysis" element={<Overview user={user} />} />
             <Route path="/forecast" element={<AiForecast user={user} />} />
             <Route path="/budget" element={<SmartBudget user={user} />} />
             <Route path="/alerts" element={<Alerts user={user} />} />
