@@ -112,7 +112,15 @@ class ExpensePredictor:
 
             # Predict next month
             X_next = poly.transform(np.array([[n_months]]))
-            predicted_total = max(0, model.predict(X_next)[0])
+            raw_pred = model.predict(X_next)[0]
+            
+            # Polynomial Regression can wildly overfit a sharp drop (like May's plunge down to 15k).
+            # The parabola opens downward and hits negative numbers, which we clamped to exactly 0. 
+            # If we detect a negative mathematical crash, gracefully fallback to a Weighted Moving Average.
+            if raw_pred <= 0:
+                predicted_total = (expense_values[-1] * 0.7) + (expense_values[-2] * 0.3)
+            else:
+                predicted_total = raw_pred
 
             # Calculate R² score for confidence
             r2_score = model.score(X_poly, y)

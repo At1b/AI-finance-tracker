@@ -1,0 +1,307 @@
+﻿diff --git a/api.py b/api.py
+index b0be574..ed2277e 100644
+--- a/api.py
++++ b/api.py
+@@ -15,7 +15,7 @@ app = Flask(__name__)
+ # Enable CORS for the local React app running on port 5173
+ CORS(app, resources={r"/api/*": {"origins": "*"}})
+ 
+-DB_NAME = "finance.db"
++DB_NAME = os.getenv("DB_PATH", "finance.db")
+ 
+ def get_db():
+     conn = sqlite3.connect(DB_NAME, check_same_thread=False)
+@@ -142,7 +142,7 @@ def predict_category():
+ @app.route('/api/ai/forecast', methods=['GET'])
+ def ai_forecast():
+     username = request.args.get('username')
+-    predictor = ExpensePredictor()
++    predictor = ExpensePredictor(DB_NAME)
+     
+     # Get standard prediction
+     next_month = predictor.predict_next_month(username)
+@@ -155,14 +155,14 @@ def ai_forecast():
+ @app.route('/api/ai/budget', methods=['GET'])
+ def budget_advise():
+     username = request.args.get('username')
+-    advisor = BudgetAdvisor()
++    advisor = BudgetAdvisor(DB_NAME)
+     result = advisor.generate_budget(username)
+     return jsonify(result)
+ 
+ @app.route('/api/ai/alerts', methods=['GET'])
+ def alerts():
+     username = request.args.get('username')
+-    engine = SmartAlerts()
++    engine = SmartAlerts(DB_NAME)
+     active_alerts = engine.generate_alerts(username)
+     
+     critical_count = sum(1 for a in active_alerts if a.get('severity') == 'CRITICAL')
+diff --git a/category_classifier.py b/category_classifier.py
+index 8239f0a..a83b056 100644
+--- a/category_classifier.py
++++ b/category_classifier.py
+@@ -9,10 +9,8 @@ Classifies expense descriptions into: Food, Transport, Shopping, Bills, Other
+ """
+ 
+ import re
+-import numpy as np
+-from sklearn.feature_extraction.text import TfidfVectorizer
+-from sklearn.naive_bayes import MultinomialNB
+-from sklearn.pipeline import Pipeline
++import math
++from collections import Counter
+ import sqlite3
+ 
+ 
+@@ -229,25 +227,38 @@ class CategoryClassifier:
+     def __init__(self, db_path="finance.db"):
+         self.db_path = db_path
+         self.model = None
++        self.class_doc_counts = {}
++        self.class_word_counts = {}
++        self.class_total_words = {}
++        self.vocab = set()
++        self.total_documents = 0
++        self.vocab_size = 0
+         self._build_model()
+ 
++    def _tokenize(self, text):
++        return re.findall(r"[a-z0-9]+", text.lower())
++
+     def _build_model(self):
+-        """Train the ML model on synthetic + historical data."""
+-        texts = [t[0] for t in TRAINING_DATA]
+-        labels = [t[1] for t in TRAINING_DATA]
+-
+-        # Build TF-IDF + Naive Bayes pipeline
+-        self.model = Pipeline([
+-            ("tfidf", TfidfVectorizer(
+-                lowercase=True,
+-                ngram_range=(1, 2),
+-                max_features=5000,
+-                stop_words="english",
+-            )),
+-            ("clf", MultinomialNB(alpha=0.1)),
+-        ])
+-
+-        self.model.fit(texts, labels)
++        """Train a lightweight Naive Bayes model on synthetic data."""
++        self.class_doc_counts = {category: 0 for category in self.CATEGORIES}
++        self.class_word_counts = {category: Counter() for category in self.CATEGORIES}
++        self.class_total_words = {category: 0 for category in self.CATEGORIES}
++        self.vocab = set()
++
++        for text, label in TRAINING_DATA:
++            tokens = self._tokenize(text)
++            if not tokens:
++                continue
++
++            self.class_doc_counts[label] += 1
++            self.total_documents += 1
++
++            for token in tokens:
++                self.class_word_counts[label][token] += 1
++                self.class_total_words[label] += 1
++                self.vocab.add(token)
++
++        self.vocab_size = max(len(self.vocab), 1)
+ 
+     def _keyword_classify(self, description):
+         """
+@@ -287,19 +298,39 @@ class CategoryClassifier:
+     def _ml_classify(self, description):
+         """
+         ML-based classification using trained model.
+-        Returns (category, confidence).
++        Returns (category, confidence, probabilities).
+         """
+         if not description.strip():
+-            return "Other", 0
++            return "Other", 0, {}
++
++        tokens = self._tokenize(description)
++        if not tokens:
++            return "Other", 0, {}
+ 
+-        probabilities = self.model.predict_proba([description])[0]
+-        classes = self.model.classes_
+-        max_idx = np.argmax(probabilities)
++        log_probabilities = {}
++        total_docs = max(self.total_documents, 1)
+ 
+-        category = classes[max_idx]
+-        confidence = round(probabilities[max_idx] * 100, 1)
++        for category in self.CATEGORIES:
++            prior = (self.class_doc_counts.get(category, 0) + 1) / (total_docs + len(self.CATEGORIES))
++            log_probability = math.log(prior)
++            total_words = self.class_total_words.get(category, 0)
++            denominator = total_words + self.vocab_size
+ 
+-        return category, confidence
++            for token in tokens:
++                token_count = self.class_word_counts.get(category, Counter()).get(token, 0)
++                log_probability += math.log((token_count + 1) / denominator)
++
++            log_probabilities[category] = log_probability
++
++        max_log = max(log_probabilities.values())
++        exp_scores = {category: math.exp(value - max_log) for category, value in log_probabilities.items()}
++        total_score = sum(exp_scores.values()) or 1
++        probabilities = {category: (score / total_score) * 100 for category, score in exp_scores.items()}
++
++        category = max(probabilities, key=probabilities.get)
++        confidence = round(probabilities[category], 1)
++
++        return category, confidence, {category_name: round(prob, 1) for category_name, prob in probabilities.items()}
+ 
+     def classify(self, description):
+         """
+@@ -318,15 +349,7 @@ class CategoryClassifier:
+         keyword_result = self._keyword_classify(description)
+ 
+         # Step 2: ML classification
+-        ml_category, ml_confidence = self._ml_classify(description)
+-
+-        # Get all ML probabilities
+-        probabilities = {}
+-        if self.model:
+-            probs = self.model.predict_proba([description])[0]
+-            classes = self.model.classes_
+-            for cls, prob in zip(classes, probs):
+-                probabilities[cls] = round(prob * 100, 1)
++        ml_category, ml_confidence, probabilities = self._ml_classify(description)
+ 
+         # Step 3: Decide which to use
+         if keyword_result:
+@@ -364,7 +387,7 @@ class CategoryClassifier:
+         return {
+             "category": ml_category,
+             "confidence": ml_confidence,
+-            "method": "ML (Naive Bayes)",
++            "method": "ML (Pure Python Naive Bayes)",
+             "probabilities": probabilities,
+         }
+ 
+diff --git a/predictor.py b/predictor.py
+index c760fac..399a5cd 100644
+--- a/predictor.py
++++ b/predictor.py
+@@ -1,15 +1,12 @@
+ """
+ AI Expense Predictor Module
+-Uses scikit-learn Linear Regression with Polynomial Features
+-to predict next month's spending based on historical transaction data.
++Uses a pure-Python polynomial trend fit to predict next month's spending
++based on historical transaction data.
+ """
+ 
+ import sqlite3
+-import numpy as np
+ from datetime import datetime, timedelta
+ from collections import defaultdict
+-from sklearn.linear_model import LinearRegression
+-from sklearn.preprocessing import PolynomialFeatures
+ import random
+ 
+ 
+@@ -66,6 +63,62 @@ class ExpensePredictor:
+             "monthly_payment": dict(monthly_payment),
+         }
+ 
++    def _solve_linear_system(self, matrix, vector):
++        """Solve a small linear system using Gaussian elimination."""
++        size = len(vector)
++        augmented = [row[:] + [vector[index]] for index, row in enumerate(matrix)]
++
++        for pivot_index in range(size):
++            pivot_row = max(range(pivot_index, size), key=lambda row: abs(augmented[row][pivot_index]))
++            if abs(augmented[pivot_row][pivot_index]) < 1e-12:
++                return None
++
++            if pivot_row != pivot_index:
++                augmented[pivot_index], augmented[pivot_row] = augmented[pivot_row], augmented[pivot_index]
++
++            pivot_value = augmented[pivot_index][pivot_index]
++            for column in range(pivot_index, size + 1):
++                augmented[pivot_index][column] /= pivot_value
++
++            for row in range(size):
++                if row == pivot_index:
++                    continue
++                factor = augmented[row][pivot_index]
++                if factor == 0:
++                    continue
++                for column in range(pivot_index, size + 1):
++                    augmented[row][column] -= factor * augmented[pivot_index][column]
++
++        return [augmented[index][size] for index in range(size)]
++
++    def _fit_polynomial(self, x_values, y_values, degree):
++        """Fit a polynomial of the requested degree using least squares."""
++        degree = max(1, degree)
++        size = degree + 1
++
++        power_sums = [sum((x ** power) for x in x_values) for power in range(2 * degree + 1)]
++        matrix = [[power_sums[row + column] for column in range(size)] for row in range(size)]
++        vector = [sum((x ** row) * y for x, y in zip(x_values, y_values)) for row in range(size)]
++
++        coefficients = self._solve_linear_system(matrix, vector)
++        if coefficients is None:
++            return None
++
++        return coefficients
++
++    def _evaluate_polynomial(self, coefficients, x_value):
++        return sum(coefficient * (x_value ** index) for index, coefficient in enumerate(coefficients))
++
++    def _r_squared(self, y_values, predictions):
++        mean_y = sum(y_values) / max(len(y_values), 1)
++        total_variance = sum((value - mean_y) ** 2 for value in y_values)
++        residual_variance = sum((actual - predicted) ** 2 for actual, predicted in zip(y_values, predictions))
++
++        if total_variance <= 0:
++            return 0.0
++
++        return max(0.0, 1 - (residual_variance / total_variance))
++
+     def predict_next_month(self, username):
+         """
+         Predicts next month's spending using ML.
+@@ -100,23 +153,19 @@ class ExpensePredictor:
+ 
+         # --- ML PREDICTION ---
+         if n_months >= 3:
+-            # Use Polynomial Regression (degree 2) for trend detection
+-            X = np.arange(n_months).reshape(-1, 1)
+-            y = np.array(expense_values)
+-
+-            poly = PolynomialFeatures(degree=min(2, n_months - 1))
+-            X_poly = poly.fit_transform(X)
+-
+-            model = LinearRegression()
+-            model.fit(X_poly, y)
+-
+-            # Predict next month
+-            X_next = poly.transform(np.array([[n_months]]))
+-            predicted_total = max(0, model.predict(X_next)[0])
+-
+-            # Calculate R┬▓ score for confidence
+-            r2_score = model.score(X_poly, y)
+-            confidence = max(0, min(100, r2_score * 100))
++            # Use polynomial regression (degree 2) in pure Python.
++            x_values = list(range(n_months))
++            degree = min(2, n_months - 1)
++            coefficients = self._fit_polynomial(x_values, expense_values, degree)
++
++            if coefficients is None:
++                change = expense_values[-1] - expense_values[-2]
++                predicted_total = max(0, expense_values[-1] + change)
++                confidence = 40.0
++            else:
++                predicted_total = max(0, self._evaluate_polynomial(coefficients, n_months))
++                fitted_values = [self._evaluate_polynomial(coefficients, x) for x in x_values]
++                confidence = max(0, min(100, self._r_squared(expense_values, fitted_values) * 100))
+ 
+             # Trend analysis
+             if n_months >= 2:
