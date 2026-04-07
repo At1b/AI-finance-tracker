@@ -15,7 +15,7 @@ app = Flask(__name__)
 # Enable CORS for the local React app running on port 5173
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-DB_NAME = "finance.db"
+DB_NAME = os.getenv("DB_PATH", "finance.db")
 
 def get_db():
     conn = sqlite3.connect(DB_NAME, check_same_thread=False)
@@ -142,7 +142,7 @@ def predict_category():
 @app.route('/api/ai/forecast', methods=['GET'])
 def ai_forecast():
     username = request.args.get('username')
-    predictor = ExpensePredictor()
+    predictor = ExpensePredictor(DB_NAME)
     
     # Get standard prediction
     next_month = predictor.predict_next_month(username)
@@ -155,14 +155,14 @@ def ai_forecast():
 @app.route('/api/ai/budget', methods=['GET'])
 def budget_advise():
     username = request.args.get('username')
-    advisor = BudgetAdvisor()
+    advisor = BudgetAdvisor(DB_NAME)
     result = advisor.generate_budget(username)
     return jsonify(result)
 
 @app.route('/api/ai/alerts', methods=['GET'])
 def alerts():
     username = request.args.get('username')
-    engine = SmartAlerts()
+    engine = SmartAlerts(DB_NAME)
     active_alerts = engine.generate_alerts(username)
     
     critical_count = sum(1 for a in active_alerts if a.get('severity') == 'CRITICAL')
