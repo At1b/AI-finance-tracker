@@ -11,7 +11,9 @@ const api = axios.create({
 
 export default {
   login: (username, password) => api.post('/login', { username, password }),
-  register: (username, password) => api.post('/register', { username, password }),
+  register: (username, password, job, base_income) => api.post('/register', { username, password, job, base_income }),
+  getProfile: (username) => api.get(`/user/profile?username=${username}`),
+  updateProfile: (username, data) => api.put(`/user/profile?username=${username}`, data),
   
   getTransactions: (username) => api.get(`/transactions?username=${username}`),
   addTransaction: (data, username) => api.post(`/transactions?username=${username}`, data),
@@ -20,6 +22,6 @@ export default {
   
   predictCategory: (description) => api.post('/ai/predict-category', { description }),
   getForecast: (username) => api.get(`/ai/forecast?username=${username}`),
-  getBudget: (username) => api.get(`/ai/budget?username=${username}`),
+  getBudget: (username, month = null) => api.get(`/ai/budget?username=${username}${month ? `&month=${month}` : ''}`),
   getAlerts: (username) => api.get(`/ai/alerts?username=${username}`),
 };

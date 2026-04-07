@@ -5,14 +5,16 @@ import api from '../services/api';
 export default function SmartBudget({ user }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState('');
 
   useEffect(() => {
     fetchData();
-  }, [user]);
+  }, [user, selectedMonth]);
 
   const fetchData = async () => {
+    setLoading(true);
     try {
-      const res = await api.getBudget(user);
+      const res = await api.getBudget(user, selectedMonth);
       setData(res.data);
     } catch (err) {
       console.error(err);
@@ -20,17 +22,29 @@ export default function SmartBudget({ user }) {
     setLoading(false);
   };
 
-  if (loading) return <div className="text-center py-20 animate-pulse text-accent-neon">Loading Budgets...</div>;
+  if (loading && !data) return <div className="text-center py-20 animate-pulse text-accent-neon">Loading Budgets...</div>;
   if (data?.error) return <div className="text-center py-20 text-gray-400">{data.error}</div>;
 
   return (
     <div className="space-y-6 animate-[fadeIn_0.3s_ease-out]">
       <div className="glass-panel p-8">
-        <h2 className="text-2xl font-bold mb-2 flex items-center">
-          <Target className="w-6 h-6 mr-3 text-accent-neon" />
-          50/30/20 Smart Budget
-        </h2>
-        <p className="text-gray-400 mb-8">Automatically calculated using the 50/30/20 rule based on your total income: ₹{data.avg_monthly_income?.toLocaleString()}</p>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
+          <div>
+            <h2 className="text-2xl font-bold mb-2 flex items-center">
+              <Target className="w-6 h-6 mr-3 text-accent-neon" />
+              50/30/20 Smart Budget
+            </h2>
+            <p className="text-gray-400">Automatically calculated using the 50/30/20 rule based on your total income: ₹{data.avg_monthly_income?.toLocaleString()}</p>
+          </div>
+          <div className="mt-4 md:mt-0 shrink-0">
+            <input 
+              type="month" 
+              className="bg-navy-900 border border-navy-700 text-white px-4 py-2 rounded-xl focus:border-accent-neon focus:ring-1 focus:ring-accent-neon outline-none cursor-pointer"
+              value={selectedMonth || data?.current_month || ''}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+            />
+          </div>
+        </div>
         
         <div className="space-y-6">
           {Object.entries(data.category_budgets || {}).map(([cat, info]) => {

@@ -34,7 +34,20 @@ class BudgetAdvisor:
         conn.close()
         return rows
 
-    def generate_budget(self, username):
+    def get_user_profile(self, username):
+        """Fetch the user's hardcoded base income profile."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT base_income FROM users WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            conn.close()
+            return float(row[0]) if row and row[0] else 0.0
+        except sqlite3.OperationalError:
+            conn.close()
+            return 0.0
+
+    def generate_budget(self, username, target_month=None):
         """
         Generates smart budget suggestions based on spending patterns.
         
@@ -56,7 +69,7 @@ class BudgetAdvisor:
         monthly_income = defaultdict(float)
         monthly_expenses = defaultdict(float)
         monthly_category_spending = defaultdict(lambda: defaultdict(float))
-        all_categories = set()
+        all_categories = {"Food", "Transport", "Shopping", "Bills", "Other"}
 
         for category, amount, txn_type, payment_mode, date_str in rows:
             try:
@@ -78,17 +91,23 @@ class BudgetAdvisor:
         sorted_months = sorted(monthly_expenses.keys())
         n_months = len(sorted_months)
 
-        # --- Calculate averages ---
-        avg_monthly_income = sum(monthly_income.values()) / max(len(monthly_income), 1)
+        # --- Calculate base limits ---
+        profile_income = self.get_user_profile(username)
+        # Use hard-locked profile income if configured, else dynamically sum historical transactions
+        if profile_income > 0:
+            avg_monthly_income = profile_income
+        else:
+            avg_monthly_income = sum(monthly_income.values()) / max(len(monthly_income), 1)
+            
         avg_monthly_expense = sum(monthly_expenses.values()) / n_months
 
         # Current month data
-        current_month = datetime.today().strftime("%Y-%m")
+        current_month = target_month if target_month else datetime.today().strftime("%Y-%m")
         current_month_spending = monthly_category_spending.get(current_month, {})
         current_month_total = sum(current_month_spending.values())
 
-        # If no current month data, use the latest month
-        if not current_month_spending and sorted_months:
+        # If no explicit target_month and no current month data, use the latest month available
+        if not target_month and not current_month_spending and sorted_months:
             current_month = sorted_months[-1]
             current_month_spending = monthly_category_spending.get(current_month, {})
             current_month_total = sum(current_month_spending.values())

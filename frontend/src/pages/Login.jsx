@@ -6,6 +6,8 @@ export default function Login({ onLogin }) {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [job, setJob] = useState('');
+  const [baseIncome, setBaseIncome] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -19,7 +21,8 @@ export default function Login({ onLogin }) {
         const res = await api.login(username, password);
         onLogin(res.data.username);
       } else {
-        await api.register(username, password);
+        const incomeValue = baseIncome ? parseFloat(baseIncome) : 0;
+        await api.register(username, password, job, incomeValue);
         const res = await api.login(username, password);
         onLogin(res.data.username);
       }
@@ -78,6 +81,34 @@ export default function Login({ onLogin }) {
               <Fingerprint className="absolute right-4 top-3.5 w-5 h-5 text-gray-500" />
             </div>
           </div>
+
+          {!isLogin && (
+            <div className="space-y-5 animate-[fadeIn_0.3s_ease-out]">
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1 ml-1">Job Title</label>
+                <input 
+                  type="text" 
+                  required
+                  className="input-field" 
+                  placeholder="Software Engineer"
+                  value={job}
+                  onChange={e => setJob(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1 ml-1">Base Monthly Income (₹)</label>
+                <input 
+                  type="number" 
+                  required
+                  min="0"
+                  className="input-field" 
+                  placeholder="80000"
+                  value={baseIncome}
+                  onChange={e => setBaseIncome(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
 
           <button 
             type="submit" 

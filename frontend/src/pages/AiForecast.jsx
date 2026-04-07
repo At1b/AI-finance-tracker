@@ -37,7 +37,7 @@ export default function AiForecast({ user }) {
   // For a full implementation, the backend would send an array of 3 future projections
   // Here we just use the backend's "next_month" actual value
   const lastAmt = chartData[chartData.length - 1].actual;
-  const predAmt = parseFloat(prediction.next_month.replace(/[^\d.]/g, ''));
+  const predAmt = parseFloat(prediction.predicted_total);
   chartData.push({ 
     month: "Next Month", 
     forecast: predAmt,
@@ -52,8 +52,8 @@ export default function AiForecast({ user }) {
          
          <div className="flex justify-between items-start relative z-10">
             <div>
-               <h3 className="text-gray-400 font-medium">Predicted Spending ({prediction.method})</h3>
-               <h1 className="text-5xl font-bold mt-2 text-white">{prediction.next_month}</h1>
+               <h3 className="text-gray-400 font-medium">Predicted Spending for {prediction.next_month} ({prediction.method})</h3>
+               <h1 className="text-5xl font-bold mt-2 text-white">₹{prediction.predicted_total.toLocaleString()}</h1>
                <div className="flex items-center mt-4 space-x-3">
                   <span className={`px-3 py-1 rounded-full text-sm font-semibold bg-navy-900 border ${prediction.trend === 'Declining' ? 'text-accent-green border-accent-green/30' : 'text-accent-red border-accent-red/30'}`}>
                      Trend: {prediction.trend}

@@ -7,7 +7,8 @@ import {
   BellRing, 
   LogOut, 
   PlusCircle,
-  LayoutDashboard
+  LayoutDashboard,
+  UserCircle
 } from 'lucide-react';
 import api from '../services/api';
 
@@ -16,6 +17,7 @@ import AiForecast from './AiForecast';
 import SmartBudget from './SmartBudget';
 import Alerts from './Alerts';
 import AddTransaction from './AddTransaction';
+import Profile from './Profile';
 
 export default function Dashboard({ user, onLogout }) {
   const location = useLocation();
@@ -26,6 +28,7 @@ export default function Dashboard({ user, onLogout }) {
     { path: "/forecast", label: "AI Forecast", icon: BrainCircuit },
     { path: "/budget", label: "Smart Budget", icon: Wallet },
     { path: "/alerts", label: "Alerts", icon: BellRing },
+    { path: "/profile", label: "Profile", icon: UserCircle },
   ];
 
   return (
@@ -102,6 +105,7 @@ export default function Dashboard({ user, onLogout }) {
             <Route path="/budget" element={<SmartBudget user={user} />} />
             <Route path="/alerts" element={<Alerts user={user} />} />
             <Route path="/add" element={<AddTransaction user={user} />} />
+            <Route path="/profile" element={<Profile user={user} />} />
           </Routes>
         </div>
       </main>

@@ -9,8 +9,10 @@ Classifies expense descriptions into: Food, Transport, Shopping, Bills, Other
 """
 
 import re
-import math
-from collections import Counter
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.pipeline import Pipeline
 import sqlite3
 
 
@@ -227,38 +229,25 @@ class CategoryClassifier:
     def __init__(self, db_path="finance.db"):
         self.db_path = db_path
         self.model = None
-        self.class_doc_counts = {}
-        self.class_word_counts = {}
-        self.class_total_words = {}
-        self.vocab = set()
-        self.total_documents = 0
-        self.vocab_size = 0
         self._build_model()
 
-    def _tokenize(self, text):
-        return re.findall(r"[a-z0-9]+", text.lower())
-
     def _build_model(self):
-        """Train a lightweight Naive Bayes model on synthetic data."""
-        self.class_doc_counts = {category: 0 for category in self.CATEGORIES}
-        self.class_word_counts = {category: Counter() for category in self.CATEGORIES}
-        self.class_total_words = {category: 0 for category in self.CATEGORIES}
-        self.vocab = set()
+        """Train the ML model on synthetic + historical data."""
+        texts = [t[0] for t in TRAINING_DATA]
+        labels = [t[1] for t in TRAINING_DATA]
 
-        for text, label in TRAINING_DATA:
-            tokens = self._tokenize(text)
-            if not tokens:
-                continue
+        # Build TF-IDF + Naive Bayes pipeline
+        self.model = Pipeline([
+            ("tfidf", TfidfVectorizer(
+                lowercase=True,
+                ngram_range=(1, 2),
+                max_features=5000,
+                stop_words="english",
+            )),
+            ("clf", MultinomialNB(alpha=0.1)),
+        ])
 
-            self.class_doc_counts[label] += 1
-            self.total_documents += 1
-
-            for token in tokens:
-                self.class_word_counts[label][token] += 1
-                self.class_total_words[label] += 1
-                self.vocab.add(token)
-
-        self.vocab_size = max(len(self.vocab), 1)
+        self.model.fit(texts, labels)
 
     def _keyword_classify(self, description):
         """
@@ -298,39 +287,19 @@ class CategoryClassifier:
     def _ml_classify(self, description):
         """
         ML-based classification using trained model.
-        Returns (category, confidence, probabilities).
+        Returns (category, confidence).
         """
         if not description.strip():
-            return "Other", 0, {}
+            return "Other", 0
 
-        tokens = self._tokenize(description)
-        if not tokens:
-            return "Other", 0, {}
+        probabilities = self.model.predict_proba([description])[0]
+        classes = self.model.classes_
+        max_idx = np.argmax(probabilities)
 
-        log_probabilities = {}
-        total_docs = max(self.total_documents, 1)
+        category = classes[max_idx]
+        confidence = round(probabilities[max_idx] * 100, 1)
 
-        for category in self.CATEGORIES:
-            prior = (self.class_doc_counts.get(category, 0) + 1) / (total_docs + len(self.CATEGORIES))
-            log_probability = math.log(prior)
-            total_words = self.class_total_words.get(category, 0)
-            denominator = total_words + self.vocab_size
-
-            for token in tokens:
-                token_count = self.class_word_counts.get(category, Counter()).get(token, 0)
-                log_probability += math.log((token_count + 1) / denominator)
-
-            log_probabilities[category] = log_probability
-
-        max_log = max(log_probabilities.values())
-        exp_scores = {category: math.exp(value - max_log) for category, value in log_probabilities.items()}
-        total_score = sum(exp_scores.values()) or 1
-        probabilities = {category: (score / total_score) * 100 for category, score in exp_scores.items()}
-
-        category = max(probabilities, key=probabilities.get)
-        confidence = round(probabilities[category], 1)
-
-        return category, confidence, {category_name: round(prob, 1) for category_name, prob in probabilities.items()}
+        return category, confidence
 
     def classify(self, description):
         """
@@ -349,7 +318,15 @@ class CategoryClassifier:
         keyword_result = self._keyword_classify(description)
 
         # Step 2: ML classification
-        ml_category, ml_confidence, probabilities = self._ml_classify(description)
+        ml_category, ml_confidence = self._ml_classify(description)
+
+        # Get all ML probabilities
+        probabilities = {}
+        if self.model:
+            probs = self.model.predict_proba([description])[0]
+            classes = self.model.classes_
+            for cls, prob in zip(classes, probs):
+                probabilities[cls] = round(prob * 100, 1)
 
         # Step 3: Decide which to use
         if keyword_result:
@@ -387,7 +364,7 @@ class CategoryClassifier:
         return {
             "category": ml_category,
             "confidence": ml_confidence,
-            "method": "ML (Pure Python Naive Bayes)",
+            "method": "ML (Naive Bayes)",
             "probabilities": probabilities,
         }
 

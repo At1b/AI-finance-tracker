@@ -1,12 +1,15 @@
 """
 AI Expense Predictor Module
-Uses a pure-Python polynomial trend fit to predict next month's spending
-based on historical transaction data.
+Uses scikit-learn Linear Regression with Polynomial Features
+to predict next month's spending based on historical transaction data.
 """
 
 import sqlite3
+import numpy as np
 from datetime import datetime, timedelta
 from collections import defaultdict
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
 import random
 
 
@@ -63,62 +66,6 @@ class ExpensePredictor:
             "monthly_payment": dict(monthly_payment),
         }
 
-    def _solve_linear_system(self, matrix, vector):
-        """Solve a small linear system using Gaussian elimination."""
-        size = len(vector)
-        augmented = [row[:] + [vector[index]] for index, row in enumerate(matrix)]
-
-        for pivot_index in range(size):
-            pivot_row = max(range(pivot_index, size), key=lambda row: abs(augmented[row][pivot_index]))
-            if abs(augmented[pivot_row][pivot_index]) < 1e-12:
-                return None
-
-            if pivot_row != pivot_index:
-                augmented[pivot_index], augmented[pivot_row] = augmented[pivot_row], augmented[pivot_index]
-
-            pivot_value = augmented[pivot_index][pivot_index]
-            for column in range(pivot_index, size + 1):
-                augmented[pivot_index][column] /= pivot_value
-
-            for row in range(size):
-                if row == pivot_index:
-                    continue
-                factor = augmented[row][pivot_index]
-                if factor == 0:
-                    continue
-                for column in range(pivot_index, size + 1):
-                    augmented[row][column] -= factor * augmented[pivot_index][column]
-
-        return [augmented[index][size] for index in range(size)]
-
-    def _fit_polynomial(self, x_values, y_values, degree):
-        """Fit a polynomial of the requested degree using least squares."""
-        degree = max(1, degree)
-        size = degree + 1
-
-        power_sums = [sum((x ** power) for x in x_values) for power in range(2 * degree + 1)]
-        matrix = [[power_sums[row + column] for column in range(size)] for row in range(size)]
-        vector = [sum((x ** row) * y for x, y in zip(x_values, y_values)) for row in range(size)]
-
-        coefficients = self._solve_linear_system(matrix, vector)
-        if coefficients is None:
-            return None
-
-        return coefficients
-
-    def _evaluate_polynomial(self, coefficients, x_value):
-        return sum(coefficient * (x_value ** index) for index, coefficient in enumerate(coefficients))
-
-    def _r_squared(self, y_values, predictions):
-        mean_y = sum(y_values) / max(len(y_values), 1)
-        total_variance = sum((value - mean_y) ** 2 for value in y_values)
-        residual_variance = sum((actual - predicted) ** 2 for actual, predicted in zip(y_values, predictions))
-
-        if total_variance <= 0:
-            return 0.0
-
-        return max(0.0, 1 - (residual_variance / total_variance))
-
     def predict_next_month(self, username):
         """
         Predicts next month's spending using ML.
@@ -153,19 +100,31 @@ class ExpensePredictor:
 
         # --- ML PREDICTION ---
         if n_months >= 3:
-            # Use polynomial regression (degree 2) in pure Python.
-            x_values = list(range(n_months))
-            degree = min(2, n_months - 1)
-            coefficients = self._fit_polynomial(x_values, expense_values, degree)
+            # Use Polynomial Regression (degree 2) for trend detection
+            X = np.arange(n_months).reshape(-1, 1)
+            y = np.array(expense_values)
 
-            if coefficients is None:
-                change = expense_values[-1] - expense_values[-2]
-                predicted_total = max(0, expense_values[-1] + change)
-                confidence = 40.0
+            poly = PolynomialFeatures(degree=min(2, n_months - 1))
+            X_poly = poly.fit_transform(X)
+
+            model = LinearRegression()
+            model.fit(X_poly, y)
+
+            # Predict next month
+            X_next = poly.transform(np.array([[n_months]]))
+            raw_pred = model.predict(X_next)[0]
+            
+            # Polynomial Regression can wildly overfit a sharp drop (like May's plunge down to 15k).
+            # The parabola opens downward and hits negative numbers, which we clamped to exactly 0. 
+            # If we detect a negative mathematical crash, gracefully fallback to a Weighted Moving Average.
+            if raw_pred <= 0:
+                predicted_total = (expense_values[-1] * 0.7) + (expense_values[-2] * 0.3)
             else:
-                predicted_total = max(0, self._evaluate_polynomial(coefficients, n_months))
-                fitted_values = [self._evaluate_polynomial(coefficients, x) for x in x_values]
-                confidence = max(0, min(100, self._r_squared(expense_values, fitted_values) * 100))
+                predicted_total = raw_pred
+
+            # Calculate R² score for confidence
+            r2_score = model.score(X_poly, y)
+            confidence = max(0, min(100, r2_score * 100))
 
             # Trend analysis
             if n_months >= 2:
